@@ -20,7 +20,8 @@ cli = ArgParser()
 
 
 class DataProcessConfig(BaseModel):
-    source_repo: str = "sapientinc/maze-30x30-hard-1k"
+    # source_repo: str = "sapientinc/maze-30x30-hard-1k"
+    source_repo: str = "dataset/test_sudoku.csv"
     output_dir: str = "data/maze-30x30-hard-1k"
 
     subsample_size: Optional[int] = None
@@ -34,19 +35,13 @@ def convert_subset(set_name: str, config: DataProcessConfig):
     inputs = []
     labels = []
     
-    with open(hf_hub_download(config.source_repo, f"{set_name}.csv", repo_type="dataset"), newline="") as csvfile:  # type: ignore
+    # note that I manually changed the difficulties for now
+    with open(config.source_repo, newline="") as csvfile:
         reader = csv.reader(csvfile)
         next(reader)  # Skip header
         for source, q, a, rating in reader:
-            all_chars.update(q)
-            all_chars.update(a)
-
-            if grid_size is None:
-                n = int(len(q) ** 0.5)
-                grid_size = (n, n)
-                
-            inputs.append(np.frombuffer(q.encode(), dtype=np.uint8).reshape(grid_size))
-            labels.append(np.frombuffer(a.encode(), dtype=np.uint8).reshape(grid_size))
+            inputs.append(np.frombuffer(q.replace('.', '0').encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
+            labels.append(np.frombuffer(a.encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
 
     # If subsample_size is specified for the training set,
     # randomly sample the desired number of examples.

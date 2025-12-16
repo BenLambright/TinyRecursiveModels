@@ -1,0 +1,1 @@
+{"pad_id": 0, "ignore_label_id": 0, "blank_identifier_id": 0, "vocab_size": 10, "seq_len": 100, "num_puzzle_identifiers": 1, "total_groups": 5, "mean_puzzle_examples": 1.0, "total_puzzles": 5, "sets": ["all"]}

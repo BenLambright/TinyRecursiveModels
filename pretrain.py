@@ -17,7 +17,7 @@ import coolname
 import hydra
 import pydantic
 from omegaconf import DictConfig
-from adam_atan2 import AdamATan2
+from adam_atan2_pytorch import AdamAtan2
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
 from utils.functions import load_model_class, get_model_source_path
@@ -147,9 +147,9 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     # Optimizers and lr
     if config.arch.puzzle_emb_ndim == 0:
         optimizers = [
-            AdamATan2(
+            AdamAtan2(
                 model.parameters(),
-                lr=0,  # Needs to be set by scheduler
+                lr=1e-4,  # Needs to be set by scheduler
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2)
             )
@@ -161,7 +161,7 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         optimizers = [
             CastedSparseEmbeddingSignSGD_Distributed(
                 model.model.puzzle_emb.buffers(),  # type: ignore
-                lr=0,  # Needs to be set by scheduler
+                lr=0.0001,  # Needs to be set by scheduler
                 weight_decay=config.puzzle_emb_weight_decay,
                 world_size=world_size
             )
@@ -173,13 +173,13 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         optimizers = [
             CastedSparseEmbeddingSignSGD_Distributed(
                 model.model.puzzle_emb.buffers(),  # type: ignore
-                lr=0,  # Needs to be set by scheduler
+                lr=0.0001,  # Needs to be set by scheduler
                 weight_decay=config.puzzle_emb_weight_decay,
                 world_size=world_size
             ),
-            AdamATan2(
+            AdamAtan2(
                 model.parameters(),
-                lr=0,  # Needs to be set by scheduler
+                lr=0.0001,  # Needs to be set by scheduler
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2)
             )
@@ -631,6 +631,72 @@ def launch(hydra_config: DictConfig):
                 rank=RANK, 
                 world_size=WORLD_SIZE,
                 cpu_group=CPU_PROCESS_GROUP)
+            
+            for set_name, batch, global_batch_size in eval_loader:
+                batch = {k: v.cuda() for k, v in batch.items()}
+                with torch.no_grad():
+                    carry = train_state.model.initial_carry(batch)
+
+                    _, _, metrics, _, _ = train_state.model(
+                        carry=carry,
+                        batch=batch,
+                        return_keys=[]   # no preds needed
+                    )
+
+                    q_halt_acc = metrics["q_halt_accuracy"]
+                    print(f"Batch q_halt_accuracy: {q_halt_acc:.4f}")
+                    total_q_acc = metrics["q_halt_accuracy"] / max(1, metrics["count"])
+                    print(f"Batch total_q_halt_accuracy: {total_q_acc:.4f}")
+                    acc = metrics["accuracy"]
+                    print(f"Batch accuracy: {acc:.4f}")
+                    total_batch_acc = metrics["accuracy"] / max(1, metrics["count"])
+                    print(f"Batch total_accuracy: {total_batch_acc:.4f}")
+                    exact_acc = metrics["exact_accuracy"]
+                    print(f"Batch exact_accuracy: {exact_acc:.4f}")
+                    total_exact_acc = metrics["exact_accuracy"] / max(1, metrics["count"])
+                    print(f"Batch total_exact_accuracy: {total_exact_acc:.4f}")
+
+            # printed = False
+
+            # for set_name, batch, global_batch_size in eval_loader:
+            #     batch = {k: v.cuda() for k, v in batch.items()}
+            #     with torch.no_grad():
+            #         carry = train_state.model.initial_carry(batch)
+
+            #         # ask for common outputs
+            #         return_keys = ["logits", "q_halt_logits", "q_continue_logits"]
+
+            #         _, _, metrics, preds, _ = train_state.model(
+            #             carry=carry,
+            #             batch=batch,
+            #             return_keys=return_keys
+            #         )
+
+            #         if (not printed) and (RANK == 0):
+            #             printed = True
+            #             print("metrics type:", type(metrics))
+            #             print("metrics keys:", list(metrics.keys()) if isinstance(metrics, dict) else None)
+
+            #             print("preds type:", type(preds))
+            #             print("preds keys:", list(preds.keys()) if isinstance(preds, dict) else None)
+            #             for k, v in preds.items():
+            #                 if torch.is_tensor(v):
+            #                     print(k, v.shape, v.dtype, v.device)
+
+
+
+                    # # predicted probability / decision
+                    # q = outputs["q_halt_logits"]          # [B] float
+                    # pred_is_one = (q > 0)                # same rule you use in training when no_ACT_continue=True
+
+                    # labels = batch["labels"]
+                    # if labels.ndim > 1:
+                    #     labels = labels.view(labels.shape[0], -1)[:, 0]  # collapse if needed
+
+                    # gold_is_one = labels.to(torch.bool)
+
+                    # acc = (pred_is_one == gold_is_one).float().mean().item()
+                    # print(f"Batch accuracy: {acc:.4f}")
 
             if RANK == 0 and metrics is not None:
                 wandb.log(metrics, step=train_state.step)

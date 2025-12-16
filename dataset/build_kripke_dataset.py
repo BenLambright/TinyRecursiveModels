@@ -21,8 +21,8 @@ size = 100
 
 class DataProcessConfig(BaseModel):
     # source_repo: str = "sapientinc/sudoku-extreme"
-    source_repo: str = "dataset/cnf_dataset.csv"
-    output_dir: str = "data/cnf_small_test"
+    source_repo: str = "dataset/kripke_dataset_test.csv"
+    output_dir: str = "data/kripke_small_test"
 
     subsample_size: Optional[int] = None
     min_difficulty: Optional[int] = None
