@@ -14,15 +14,15 @@ from common import PuzzleDatasetMetadata
 
 cli = ArgParser()
 
-shape_x = 10
-shape_y = 10
+shape_x = 9
+shape_y = 9
 # vocab_size = 9 + 1 # 0-4, -4-0, PAD and 0
-size = 100
+size = 81
 
 class DataProcessConfig(BaseModel):
     # source_repo: str = "sapientinc/sudoku-extreme"
-    source_repo: str = "dataset/kripke_dataset_test.csv"
-    output_dir: str = "data/kripke_small_test"
+    source_repo: str = "dataset/kripke_dataset.csv"
+    output_dir: str = "data/kripke-8k"
 
     subsample_size: Optional[int] = None
     min_difficulty: Optional[int] = None
@@ -61,6 +61,8 @@ def shuffle_sudoku(board: np.ndarray, solution: np.ndarray):
 
     return apply_transformation(board), apply_transformation(solution)
 
+def convert_string_to_list(s: str) -> list[int]:
+    return [int(char) for char in s]
 
 def convert_subset(set_name: str, config: DataProcessConfig):
     # Read CSV
@@ -83,21 +85,23 @@ def convert_subset(set_name: str, config: DataProcessConfig):
         next(reader)  # Skip header
         for source, q, a, rating in reader:
             if (config.min_difficulty is None) or (int(rating) >= config.min_difficulty):
-                q_list = []
-                neg = False
-                for i in q:
-                    if i == "-":
-                        neg = True
-                    else:
-                        if neg:
-                            q_list.append(str(-int(i)))
-                            neg = False
-                        else:
-                            q_list.append(i)
-                
-                assert len(q_list) == size and len(a) == size
-                inputs.append(np.array(q_list, dtype=np.int8).reshape(shape_x, shape_y))
-                labels.append(np.frombuffer(a.encode(), dtype=np.int8).reshape(shape_x, shape_y) - ord('0'))
+                # q is actually two arrays, so we need to split them up first and then reattach them
+                # first, pop off the last shape_y number of characters for a separate array
+                q_part1 = convert_string_to_list(q[:-shape_x])
+                q_part2 = convert_string_to_list(q[-shape_x:])
+                assert len(q_part1) == shape_x * shape_y, (len(q_part1), shape_x * shape_y)
+                assert len(q_part2) == shape_x, (len(q_part2), shape_x)
+
+                accessibility_array = np.array(q_part1, dtype=np.int8).reshape(shape_x, shape_y)
+                prop_array = np.array(q_part2, dtype=np.int8).reshape(shape_x, 1)
+                concat_array = np.concatenate((accessibility_array, prop_array), axis=1)
+                assert concat_array.shape == (shape_x, shape_y + 1)
+                inputs.append(concat_array)
+
+                # a = a.strip()
+                # assert len(a) == shape_x and set(a) <= {"0","1"}, (len(a), a[:50])
+                # inputs.append(np.array(q, dtype=np.int8).reshape(shape_x, shape_y))
+                labels.append(np.array([int(c) for c in a], dtype=np.int8).reshape(shape_x, shape_y + 1))
 
     # If subsample_size is specified for the training set,
     # randomly sample the desired number of examples.
@@ -157,8 +161,8 @@ def convert_subset(set_name: str, config: DataProcessConfig):
 
     # Metadata
     metadata = PuzzleDatasetMetadata(
-        seq_len=size,
-        vocab_size=4 + 1 + 4 + 1, # 4 positive, 4 negative, 0 and pad
+        seq_len=shape_x * (shape_y + 1),  # accessibility array plus proposition array
+        vocab_size=3 + 1, # binary array, plus pad (so I'm going to make the padding 2 if it'll let me)
         pad_id=0,
         ignore_label_id=0,
         blank_identifier_id=0,
